@@ -10,10 +10,14 @@ COLUMNS = 8
 WORLD_SCALING = 0.6
 
 
+# ------------------------------------------------------------------------------------------------ #
+#                                                                                 CALIBRATE_CAMERA #
+# ------------------------------------------------------------------------------------------------ #
 def calibrate_camera(images_folder, rows, columns, world_scaling ,show_image=False):
-    images_names = glob.glob(images_folder)
 
+    images_names = glob.glob(images_folder)
     images = []
+
     for imname in images_names:
         im = cv.imread(imname, 1)
         images.append(im)
@@ -58,8 +62,7 @@ def calibrate_camera(images_folder, rows, columns, world_scaling ,show_image=Fal
             objpoints.append(objp)
             imgpoints.append(corners)
 
-
-
+    # calibrate the camera
     ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(
                                         objpoints,
                                         imgpoints,
@@ -67,17 +70,13 @@ def calibrate_camera(images_folder, rows, columns, world_scaling ,show_image=Fal
                                         None,
                                         None
                                     )
-    # print('rmse:', ret)
-    # print('camera matrix:\n', mtx)
-    # print('distortion coeffs:', dist)
-    # print('Rs:\n', rvecs)
-    # print('Ts:\n', tvecs)
 
     return mtx, dist
 
 
-
-
+# ------------------------------------------------------------------------------------------------ #
+#                                                                                 STEREO_CALIBRATE #
+# ------------------------------------------------------------------------------------------------ #
 def stereo_calibrate(
                     mtx1, dist1,
                     mtx2, dist2,
@@ -155,83 +154,68 @@ def stereo_calibrate(
     return R, T
 
 
+# ------------------------------------------------------------------------------------------------ #
+#                                                                                GET_ARUCOPOSITION #
+# ------------------------------------------------------------------------------------------------ #
 def get_arucoPosition(
-                        frames_folder_1, frames_folder_2,
-                        mtx1, dist1,
-                        mtx2, dist2,
+                        frames_folder,
+                        mtx_s, dist_s,
                         aruco_dict, aruco_params
                     ):
-    c1_images_names = glob.glob(frames_folder_1)
-    c2_images_names = glob.glob(frames_folder_2)
+    
+    no_cameras = len(mtx_s)
 
-    c1_images = []
-    c2_images = []
-    for im1, im2 in zip(c1_images_names, c2_images_names):
-        _im = cv.imread(im1, 1)
-        c1_images.append(_im)
+    # read the synched frames
+    image_names = glob.glob(frames_folder)
 
-        _im = cv.imread(im2, 1)
-        c2_images.append(_im)
+    print(image_names)
 
-    for frame1, frame2 in zip(c1_images, c2_images):
-        gray1 = cv.cvtColor(frame1, cv.COLOR_BGR2GRAY)
-        gray2 = cv.cvtColor(frame2, cv.COLOR_BGR2GRAY)
-        corners_1, ids_1, rejectedImgPoints_1 = aruco.detectMarkers(gray1, aruco_dict, parameters=aruco_params)
-        corners_2, ids_2, rejectedImgPoints_2 = aruco.detectMarkers(gray2, aruco_dict, parameters=aruco_params)
+    images = []
+    for im_name in image_names:
+        _im = cv.imread(im_name, 1)
+        images.append(_im)
 
-    # if ids_1 is not None and ids_2 is not None:
-    #     # Estimate pose of each marker
-    #     rvecs_1, tvecs_1, _ = cv.aruco.estimatePoseSingleMarkers(corners_1, 0.05, mtx1, dist1)
-    #     rvecs_2, tvecs_2, _ = cv.aruco.estimatePoseSingleMarkers(corners_2, 0.05, mtx2, dist2)
+    # array to store the corners and ids of the aruco markers from list of 
+    # camera images
+    corners_list = []
+    ids_list     = []
 
-    #     for rvec1, tvec1 in zip(rvecs_1, tvecs_1):
-    #         # Draw the marker axis
-    #         cv.drawFrameAxes(frame1, mtx1, dist1, rvec1, tvec1, 0.1) 
+    for frame in images:
+        gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        corners, ids, rejectedImgPoints_1 = aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
+        corners_list.append(corners)
+        ids_list.append(ids)
 
-    #     for rvec2, tvec2 in zip(rvecs_2, tvecs_2):
-    #         # Draw the marker axis
-    #         cv.drawFrameAxes(frame2, mtx2, dist2, rvec2, tvec2, 0.1)
+    # stores the 
+    corners_list_dict = []
+    print(len(ids_list))
 
-    corner_dict_1 = {}
-    corner_dict_2 = {}
+    for j in range(no_cameras):
+        corner_dict = {}
+        for i in range(len(ids_list[j])):
+            id = ids_list[j][i][0]
+            corner_dict[id] = corners_list[j][i]
+        corners_list_dict.append(corner_dict)
 
-    for i in range(len(ids_1)):
-        id1 = ids_1[i][0]
-        id2 = ids_2[i][0]
-        corner_dict_1[id1] = corners_1[i]
-        corner_dict_2[id2] = corners_2[i]
-
-    return corner_dict_1, corner_dict_2
+    return corners_list_dict
 
 
-def triangulate_aruco(mtx1, mtx2, R, T, uvs1, uvs2):
-    uvs1 = np.array(uvs1)
-    uvs2 = np.array(uvs2)
-
-    print('uvs1: ', uvs1)
-    print('uvs2: ', uvs2)
-
-    # frame1 = cv.imread('testing/_C1.png')
-    # frame2 = cv.imread('testing/_C2.png')
-
-    # plt.imshow(frame1[:,:,[2,1,0]])
-    # plt.scatter(uvs1[:,0], uvs1[:,1])
-    # plt.show() #this call will cause a crash if you use cv.imshow() above. Comment out cv.imshow() to see this.
-
-    # plt.imshow(frame2[:,:,[2,1,0]])
-    # plt.scatter(uvs2[:,0], uvs2[:,1])
-    # plt.show()#this call will cause a crash if you use cv.imshow() above. Comment out cv.imshow() to see this
+# ------------------------------------------------------------------------------------------------ #
+#                                                                                TRIANGULATE_ARUCO #
+# ------------------------------------------------------------------------------------------------ #
+def triangulate_aruco(mtx1, mtx2, R, T, image_points_1, image_points_2):
+    image_points_1 = np.array(image_points_1)
+    image_points_2 = np.array(image_points_2)
 
     # RT matrix for C1 is identity.
     RT1 = np.concatenate([np.eye(3), [[0], [0], [0]]], axis=-1)
-    P1 = mtx1 @ RT1  # projection matrix for C1
+    P1  = mtx1 @ RT1  # projection matrix for C1
 
     # RT matrix for C2 is the R and T obtained from stereo calibration.
     RT2 = np.concatenate([R, T], axis=-1)
     P2 = mtx2 @ RT2  # projection matrix for C2
 
-    def DLT(P1, P2, point1, point2):
-        
+    def DLT(P1, P2, point1, point2):        
         A = [
                 point1[1]*P1[2, :] - P1[1, :],
                 P1[0, :] - point1[0]*P1[2, :],
@@ -239,19 +223,15 @@ def triangulate_aruco(mtx1, mtx2, R, T, uvs1, uvs2):
                 P2[0, :] - point2[0]*P2[2, :]
             ]
         A = np.array(A).reshape((4, 4))
-        # print('A: ')
-        # print(A)
 
         B = A.transpose() @ A
         from scipy import linalg
         U, s, Vh = linalg.svd(B, full_matrices=False)
 
-        # print('Triangulated point: ')
-        # print(Vh[3, 0:3]/Vh[3, 3])
         return Vh[3, 0:3]/Vh[3, 3]
 
     p3ds = []
-    for uv1, uv2 in zip(uvs1, uvs2):
+    for uv1, uv2 in zip(image_points_1, image_points_2):
         _p3d = DLT(P1, P2, uv1, uv2)
         p3ds.append(_p3d)
     p3ds = np.array(p3ds)
@@ -266,14 +246,28 @@ if __name__ == "__main__":
     mtx1, dist1 = calibrate_camera('images/*l.png', ROWS, COLUMNS, WORLD_SCALING)
     mtx2, dist2 = calibrate_camera('images/*r.png', ROWS, COLUMNS, WORLD_SCALING)
 
+    camera_matrix_list  = [mtx1, mtx2]
+    camera_distor_list  = [dist1, dist2]
+
     print("single camera calibrated")
 
-    R, T = stereo_calibrate(
-                            mtx1, dist1,
-                            mtx2, dist2,
+    Rs = [np.eye(3)]
+    Ts = [np.zeros((3, 1))]
+
+    prime_camera_matrix = camera_matrix_list[0]
+    prime_camera_distor = camera_distor_list[0]
+
+    for camera_matrix, camera_distor in zip(camera_matrix_list[1:], camera_distor_list[1:]):
+        R, T = stereo_calibrate(
+                            prime_camera_matrix, prime_camera_distor,
+                            camera_matrix, camera_distor,
                             'images/*l.png', 'images/*r.png',
                             ROWS, COLUMNS, WORLD_SCALING
                             )
+        Rs.append(R)
+        Ts.append(T)
+ 
+    print(T)
 
     # Get Aruco
     aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_6X6_250)
@@ -283,10 +277,10 @@ if __name__ == "__main__":
     tag_image = cv.aruco.generateImageMarker(aruco_dict, tag_id, tag_size)
     parameters = cv.aruco.DetectorParameters()
 
-    c1, c2 = get_arucoPosition(
-        "aruco/*l.png", "aruco/*r.png",
-        mtx1, dist1,
-        mtx2, dist2,
+    corners_list_dict = get_arucoPosition(
+        "aruco/*.png",
+        camera_matrix_list,
+        camera_distor_list,
         aruco_dict, parameters
     )
 
@@ -308,13 +302,13 @@ if __name__ == "__main__":
             
 
     
-    p1, con1 = triangulate_aruco(mtx1, mtx2, R, T, c1[0][0], c2[0][0])
+    p1, con1 = triangulate_aruco(mtx1, mtx2, R, T, corners_list_dict[0][0][0], corners_list_dict[1][0][0])
     plot_aruco(ax, p1, con1)
 
-    p2, con2 = triangulate_aruco(mtx1, mtx2, R, T, c1[2][0], c2[2][0])
+    p2, con2 = triangulate_aruco(mtx1, mtx2, R, T, corners_list_dict[0][2][0], corners_list_dict[1][2][0])
     plot_aruco(ax, p2, con2)
 
-    p3, con3 = triangulate_aruco(mtx1, mtx2, R, T, c1[3][0], c2[3][0])
+    p3, con3 = triangulate_aruco(mtx1, mtx2, R, T, corners_list_dict[0][3][0], corners_list_dict[1][3][0])
     plot_aruco(ax, p3, con3)
 
     plt.show()
