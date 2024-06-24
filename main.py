@@ -203,27 +203,25 @@ def get_arucoPosition(
 # ------------------------------------------------------------------------------------------------ #
 #                                                                                TRIANGULATE_ARUCO #
 # ------------------------------------------------------------------------------------------------ #
-def triangulate_aruco(mtx1, mtx2, R, T, image_points_1, image_points_2):
-    image_points_1 = np.array(image_points_1)
-    image_points_2 = np.array(image_points_2)
+def triangulate_aruco(camera_matrix_list, Rs, Ts, image_points_list):
+    image_points_list = [np.array(pts) for pts in image_points_list]
+    no_points         = len(image_points_list[0]) 
 
-    # RT matrix for C1 is identity.
-    RT1 = np.concatenate([np.eye(3), [[0], [0], [0]]], axis=-1)
-    P1  = mtx1 @ RT1  # projection matrix for C1
+    Ps = []
 
-    # RT matrix for C2 is the R and T obtained from stereo calibration.
-    RT2 = np.concatenate([R, T], axis=-1)
-    P2 = mtx2 @ RT2  # projection matrix for C2
+    for i in range(len(camera_matrix_list)):
+        RT = np.concatenate([Rs[i], Ts[i]], axis=-1)
+        P = camera_matrix_list[i] @ RT
+        Ps.append(P)
 
-    def DLT(P1, P2, point1, point2):        
-        A = [
-                point1[1]*P1[2, :] - P1[1, :],
-                P1[0, :] - point1[0]*P1[2, :],
-                point2[1]*P2[2, :] - P2[1, :],
-                P2[0, :] - point2[0]*P2[2, :]
-            ]
-        A = np.array(A).reshape((4, 4))
 
+    def DLT(Ps, image_points):   
+        A = []
+        for P, image_point in zip(Ps, image_points):
+            A.append(image_point[1]*P[2, :] - P[1, :])
+            A.append(P[0, :] - image_point[0]*P[2, :])
+
+        A = np.array(A).reshape((len(Ps)*2, 4))
         B = A.transpose() @ A
         from scipy import linalg
         U, s, Vh = linalg.svd(B, full_matrices=False)
@@ -231,8 +229,9 @@ def triangulate_aruco(mtx1, mtx2, R, T, image_points_1, image_points_2):
         return Vh[3, 0:3]/Vh[3, 3]
 
     p3ds = []
-    for uv1, uv2 in zip(image_points_1, image_points_2):
-        _p3d = DLT(P1, P2, uv1, uv2)
+    for i in range(no_points):
+        image_points = [pts[i] for pts in image_points_list]
+        _p3d = DLT(Ps, image_points)
         p3ds.append(_p3d)
     p3ds = np.array(p3ds)
 
@@ -243,11 +242,13 @@ def triangulate_aruco(mtx1, mtx2, R, T, image_points_1, image_points_2):
 
 if __name__ == "__main__":
     # Calibration
-    mtx1, dist1 = calibrate_camera('images/*l.png', ROWS, COLUMNS, WORLD_SCALING)
-    mtx2, dist2 = calibrate_camera('images/*r.png', ROWS, COLUMNS, WORLD_SCALING)
+    mtx1, dist1 = calibrate_camera('images/*0.png', ROWS, COLUMNS, WORLD_SCALING)
+    mtx2, dist2 = calibrate_camera('images/*1.png', ROWS, COLUMNS, WORLD_SCALING)
+    mtx3, dist3 = calibrate_camera('images/*2.png', ROWS, COLUMNS, WORLD_SCALING)
 
-    camera_matrix_list  = [mtx1, mtx2]
-    camera_distor_list  = [dist1, dist2]
+
+    camera_matrix_list  = [mtx1, mtx2, mtx3]
+    camera_distor_list  = [dist1, dist2, dist3]
 
     print("single camera calibrated")
 
@@ -257,11 +258,11 @@ if __name__ == "__main__":
     prime_camera_matrix = camera_matrix_list[0]
     prime_camera_distor = camera_distor_list[0]
 
-    for camera_matrix, camera_distor in zip(camera_matrix_list[1:], camera_distor_list[1:]):
+    for i, (camera_matrix, camera_distor) in enumerate(zip(camera_matrix_list[1:], camera_distor_list[1:])):
         R, T = stereo_calibrate(
                             prime_camera_matrix, prime_camera_distor,
                             camera_matrix, camera_distor,
-                            'images/*l.png', 'images/*r.png',
+                            'images/*0.png', f'images/*{i}.png',
                             ROWS, COLUMNS, WORLD_SCALING
                             )
         Rs.append(R)
@@ -302,13 +303,13 @@ if __name__ == "__main__":
             
 
     
-    p1, con1 = triangulate_aruco(mtx1, mtx2, R, T, corners_list_dict[0][0][0], corners_list_dict[1][0][0])
+    p1, con1 = triangulate_aruco(camera_matrix_list, Rs, Ts, [i[0][0] for i in corners_list_dict])
     plot_aruco(ax, p1, con1)
 
-    p2, con2 = triangulate_aruco(mtx1, mtx2, R, T, corners_list_dict[0][2][0], corners_list_dict[1][2][0])
+    p2, con2 = triangulate_aruco(camera_matrix_list, Rs, Ts, [i[2][0] for i in corners_list_dict])
     plot_aruco(ax, p2, con2)
 
-    p3, con3 = triangulate_aruco(mtx1, mtx2, R, T, corners_list_dict[0][3][0], corners_list_dict[1][3][0])
+    p3, con3 = triangulate_aruco(camera_matrix_list, Rs, Ts, [i[3][0] for i in corners_list_dict])
     plot_aruco(ax, p3, con3)
 
     plt.show()
