@@ -3,11 +3,11 @@ from cv2 import aruco
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
-
+from mpl_toolkits.mplot3d import Axes3D
 
 ROWS = 5
 COLUMNS = 8
-WORLD_SCALING = 0.6
+WORLD_SCALING = 0.4
 
 
 # ------------------------------------------------------------------------------------------------ #
@@ -287,6 +287,7 @@ if __name__ == "__main__":
 
 
     # Triangulate
+
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     ax.set_xlim3d(-15, 5)
@@ -312,5 +313,14 @@ if __name__ == "__main__":
     p3, con3 = triangulate_aruco(camera_matrix_list, Rs, Ts, [i[3][0] for i in corners_list_dict])
     plot_aruco(ax, p3, con3)
 
+
+    # Adjust the 3D plot to approximate orthographic projection
+
+    # Make matplotlib orthographic
+    ax.view_init(elev=90, azim=90)
+    ax.get_proj = lambda: np.dot(Axes3D.get_proj(ax), np.diag([1, 1, 0.1, 1]))
     plt.show()
 
+    print("p1: ", p1)
+    print("p2: ", p2)
+    print("p3: ", p3)
