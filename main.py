@@ -16,6 +16,8 @@ WORLD_SCALING = 0.6
 def calibrate_camera(images_folder, rows, columns, world_scaling ,show_image=False):
 
     images_names = glob.glob(images_folder)
+
+    print(images_names)
     images = []
 
     for imname in images_names:
@@ -158,21 +160,16 @@ def stereo_calibrate(
 #                                                                                GET_ARUCOPOSITION #
 # ------------------------------------------------------------------------------------------------ #
 def get_arucoPosition(
-                        frames_folder,
+                        images,
                         mtx_s, dist_s,
-                        aruco_dict, aruco_params
+                        aruco_dict, aruco_params,
+                        camera_indeces
                     ):
     
-    no_cameras = len(mtx_s)
+    no_cameras = len(images)
 
-    # read the synched frames
-    image_names = glob.glob(frames_folder)
-
-    print(image_names)
-
-    images = []
-    for im_name in image_names:
-        _im = cv.imread(im_name, 1)
+    for i in camera_indeces:
+        _im = cv.imread(f'aruco/ar_{i}.png', 1)
         images.append(_im)
 
     # array to store the corners and ids of the aruco markers from list of 
@@ -241,14 +238,15 @@ def triangulate_aruco(camera_matrix_list, Rs, Ts, image_points_list):
 
 
 if __name__ == "__main__":
-    # Calibration
-    mtx1, dist1 = calibrate_camera('images/*0.png', ROWS, COLUMNS, WORLD_SCALING)
-    mtx2, dist2 = calibrate_camera('images/*1.png', ROWS, COLUMNS, WORLD_SCALING)
-    mtx3, dist3 = calibrate_camera('images/*2.png', ROWS, COLUMNS, WORLD_SCALING)
+    camera_indeces      = [0,1,3,4,5]
+    camera_matrix_list  = []
+    camera_distor_list  = []
 
+    for i in camera_indeces:
+        mtx, dist = calibrate_camera(f'images/*{i}.png', ROWS, COLUMNS, WORLD_SCALING)
+        camera_matrix_list.append(mtx)
+        camera_distor_list.append(dist)
 
-    camera_matrix_list  = [mtx1, mtx2, mtx3]
-    camera_distor_list  = [dist1, dist2, dist3]
 
     print("single camera calibrated")
 
@@ -257,32 +255,34 @@ if __name__ == "__main__":
 
     prime_camera_matrix = camera_matrix_list[0]
     prime_camera_distor = camera_distor_list[0]
+    p_i = camera_indeces[0]
 
-    for i, (camera_matrix, camera_distor) in enumerate(zip(camera_matrix_list[1:], camera_distor_list[1:])):
+    for i, camera_matrix, camera_distor in zip(camera_indeces[1:], camera_matrix_list[1:], camera_distor_list[1:]):
         R, T = stereo_calibrate(
                             prime_camera_matrix, prime_camera_distor,
                             camera_matrix, camera_distor,
-                            'images/*0.png', f'images/*{i}.png',
+                            f'images/*{p_i}.png', f'images/*{i}.png',
                             ROWS, COLUMNS, WORLD_SCALING
                             )
         Rs.append(R)
         Ts.append(T)
  
-    print(T)
-
     # Get Aruco
     aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_6X6_250)
-    tag_id = 0  # ID of the tag you want to generate
-
-    tag_size = 200  # Size of the tag image
-    tag_image = cv.aruco.generateImageMarker(aruco_dict, tag_id, tag_size)
     parameters = cv.aruco.DetectorParameters()
 
+    images = []
+
+    for i in camera_indeces:
+        _im = cv.imread(f'aruco/ar_{i}.png', 1)
+        images.append(_im)
+
     corners_list_dict = get_arucoPosition(
-        "aruco/*.png",
+        images,
         camera_matrix_list,
         camera_distor_list,
-        aruco_dict, parameters
+        aruco_dict, parameters,
+        camera_indeces
     )
 
 
@@ -313,3 +313,4 @@ if __name__ == "__main__":
     plot_aruco(ax, p3, con3)
 
     plt.show()
+
