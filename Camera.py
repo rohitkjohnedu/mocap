@@ -32,6 +32,18 @@ class Aruco:
     tvecs: NDArray[F32]
 
 
+def convert_Aruco2CorrespondingPointsList(aruco_list: list[Aruco]) -> list[CV_Matrix]:
+    NO_ARUCO_CORNERS = 4
+    out = []
+
+    for i in range(NO_ARUCO_CORNERS):
+        corner_point = [aruco_list.corners_image_position[i] for aruco_list in aruco_list]
+        out.append(corner_point)
+
+    return out
+
+
+
 @define(slots=True)
 class Camera(ABC):
     id: int
@@ -124,7 +136,10 @@ class Camera(ABC):
         self.dist_coeffs   = dist
         self.calibratedQ   = True
 
-    def get_arucoImagePose(self, aruco_dict, aruco_params) -> list[Aruco]:
+    def get_arucoImagePose(self,
+                           aruco_dict: cv.aruco.Dictionary,
+                           aruco_params: cv.aruco.DetectorParameters
+                           ) -> dict[int, Aruco]:
         image: CV_Image = self.current_frame
         gray: CV_Image  = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
 
@@ -139,10 +154,12 @@ class Camera(ABC):
             self.camera_matrix,
             self.dist_coeffs)
 
-        tag_list: list[Aruco] = []
+        tag_list: dict[int, Aruco] = {}
         for corner, id, rvec, tvec in zip(corners, ids, rvecs, tvecs):
-            tag = Aruco(id, corner, rvec, tvec)
-            tag_list.append(tag)
+            if len(id) != 1:
+                raise ValueError("Multiple ids for one tag")
+            tag = Aruco(id[0], corner[0], rvec, tvec)
+            tag_list[id[0]] = tag
 
         return tag_list
 
