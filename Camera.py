@@ -39,14 +39,14 @@ class Camera(ABC):
     chess_rows_number: int
     chess_columns_number: int
 
-    camera_matrix: NP_Matrix_3D   = field(default=np.eye(3, dtype=np.float64))
-    dist_coeffs: NDArray[F64]     = field(default=np.zeros(5, dtype=np.float64))
+    camera_matrix: NP_Matrix_3D   = field(factory=lambda: np.eye(3, dtype=np.float64))
+    dist_coeffs: NDArray[F64]     = field(factory=lambda: np.zeros(5, dtype=np.float64))
 
-    position: CV_Vector_3D     = field(default=np.zeros(3, dtype=np.float64))
-    orientation: CV_Matrix     = field(default=np.eye(3, dtype=np.float64))
+    position: CV_Vector_3D     = field(factory=lambda: np.zeros(3, dtype=np.float64))
+    orientation: CV_Matrix     = field(factory=lambda: np.eye(3, dtype=np.float64))
 
     calibratedQ: bool         = field(default=False)
-    calibration_images: list[CV_Image]  = field(default=[])
+    calibration_images: list[CV_Image]  = field(factory=list)
     calibration_error: float            = field(default=0.0)
 
     current_frame: CV_Image    = field(default=None)
@@ -110,6 +110,8 @@ class Camera(ABC):
                 imgpoints.append(corners)
 
         # calibrate the camera
+        # print("len objpoints", len(objpoints))
+        # print("len imgpoints", len(imgpoints))
         ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(
             objpoints,
             imgpoints,
@@ -162,22 +164,23 @@ class ImageReader(Camera):
         for im_loc in image_loc_list:
             _im = cv.imread(im_loc)
             self.calibration_images.append(_im)
-
+            # print(f"Image {im_loc} captured")
+        
 
 @define(slots=True)
 class StereoCamera:
     camera_list: list[Camera]
-    pos_wrt_prime_list: NP_Vector_3D = field(default=np.zeros(3, dtype=np.float64))
-    rot_wrt_prime: NP_Matrix_3D      = field(default=np.eye(3, dtype=np.float64))
+    pos_wrt_prime_list: NP_Vector_3D = field(factory=lambda: np.zeros(3, dtype=np.float64))
+    rot_wrt_prime: NP_Matrix_3D      = field(factory=lambda: np.eye(3, dtype=np.float64))
 
-    origin: NP_Vector_3D      = field(default=np.zeros(3, dtype=np.float64))
-    orientation: NP_Matrix_3D = field(default=np.eye(3, dtype=np.float64))
+    origin: NP_Vector_3D      = field(factory=lambda: np.zeros(3, dtype=np.float64))
+    orientation: NP_Matrix_3D = field(factory=lambda: np.eye(3, dtype=np.float64))
 
     prime_camera: Camera   = field(default=None)
     calibrateStereoQ: bool = False
 
-    camera_poses: list[CV_Vector_3D]  = field(default=[])
-    camera_oris:  list[CV_Matrix]     = field(default=[])
+    camera_poses: list[CV_Vector_3D]  = field(factory=list)
+    camera_oris:  list[CV_Matrix]     = field(factory=list)
 
     @property
     def get_numberCameras(self) -> int:
