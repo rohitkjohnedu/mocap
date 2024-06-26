@@ -1,2 +1,4 @@
 images/*
 *.png
+__pycache__/*
+*.prof
