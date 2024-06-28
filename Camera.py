@@ -122,7 +122,7 @@ class Camera(ABC):
                 objpoints.append(objp)
                 imgpoints.append(corners)
             else:
-                print("Checkerboard not found in image")
+                print(f"Checkerboard not found in camera {self.id} ")
 
         # calibrate the camera
         # print("len objpoints", len(objpoints))
@@ -157,14 +157,20 @@ class Camera(ABC):
             self.camera_matrix,
             self.dist_coeffs)
 
-        tag_list: dict[int, Aruco] = {}
-        for corner, id, rvec, tvec in zip(corners, ids, rvecs, tvecs):
-            if len(id) != 1:
-                raise ValueError("Multiple ids for one tag")
-            tag = Aruco(id[0], corner[0], rvec, tvec)
-            tag_list[id[0]] = tag
+        # print("corners", corners, "ids", ids)
 
-        return tag_list
+        try:
+            tag_list: dict[int, Aruco] = {}
+            for corner, id, rvec, tvec in zip(corners, ids, rvecs, tvecs):
+                if len(id) != 1:
+                    raise ValueError("Multiple ids for one tag")
+                tag = Aruco(id[0], corner[0], rvec, tvec)
+                tag_list[id[0]] = tag
+
+            return tag_list
+        
+        except TypeError as _:
+            return {}
 
     @abstractmethod
     def capture_frame(self, image_loc: str):
@@ -188,12 +194,7 @@ class ImageReader(Camera):
 
 @define(slots=True)
 class WebCam(Camera):
-    command_queue: Queue = field(factory=lambda: None)
     cap: cv.VideoCapture = field(factory=lambda: None)
-
-    def __init__(self, id, world_scaling, rows, columns, command_queue, **kwargs):
-        super().__init__(id, world_scaling, rows, columns, **kwargs)
-        self.command_queue = command_queue
 
     def initialize_camera(self):
         self.cap = cv.VideoCapture(self.id)
@@ -203,7 +204,7 @@ class WebCam(Camera):
         return True
 
     def capture_frame(self, image_loc: str = "") -> bool:
-        ret, frame         = self.cap.read()
+        ret, frame = self.cap.read()
         if not ret:
             raise ValueError(f"Camera ID {self.id}: Frame cannot captured")
         self.current_frame = frame
@@ -211,32 +212,12 @@ class WebCam(Camera):
 
     def show_frame(self):
         cv.imshow(f"Camera {self.id}", self.current_frame)
-        cv.waitKey(1)
 
     def capture_calibrationImages(self):
         if not self.initialize_camera():
-            return
-        print(f"""\nCamera {self.id} is ready to capture.""")
-
-        while True:
-            if not self.capture_frame():
-                break
-
-            # Show the current frame
-            cv.imshow(f'Camera Feed {self.id}', self.current_frame)
-            cv.waitKey(1)
-
-            if not self.command_queue.empty():
-                command = self.command_queue.get()
-                if command == 'capture':
-                    self.calibration_images.append(self.current_frame.copy())
-                    print(f"Camera {self.id}: Image captured.")
-                elif command == 'quit':
-                    break
-
-        # Release the camera and close the window
-        self.cap.release()
-        cv.destroyAllWindows()
+            raise ValueError(f"Camera {self.id}: Failed to open.")
+        
+        self.calibration_images.append(self.current_frame)
 
     def release_camera(self):
         self.cap.release()
@@ -353,7 +334,7 @@ class StereoCamera:
                 imgpoints_left.append(corners1)
                 imgpoints_right.append(corners2)
             else:
-                print(f"checkerboard not found in image, {c_ret1}, {c_ret2}")
+                print(f"checkerboard not found in camera, {c_ret1}, {c_ret2}")
 
         mtx1: CV_Matrix  = prime_cam.camera_matrix
         dist1: CV_Matrix = prime_cam.dist_coeffs
