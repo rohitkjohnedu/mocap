@@ -7,7 +7,7 @@ from attrs import define, field
 from numpy.typing import NDArray
 from CameraPPTTypes import NP_Vector_3D, NP_Matrix_3D, F64, F32, CV_Image, CV_Matrix, NP_Matrix_NxM, CV_Vector_3D 
 from abc import ABC, abstractmethod
-from multiprocessing import Queue
+from typing import Sequence
 
 
 def DLT(Ps: list[NP_Matrix_NxM], image_points: NP_Matrix_NxM) -> NP_Matrix_NxM:
@@ -225,7 +225,7 @@ class WebCam(Camera):
 
 @define(slots=True)
 class StereoCamera:
-    camera_list: list[Camera]
+    camera_list: Sequence[Camera]
     pos_wrt_prime_list: NP_Vector_3D = field(factory=lambda: np.zeros(3, dtype=np.float64))
     rot_wrt_prime: NP_Matrix_3D      = field(factory=lambda: np.eye(3, dtype=np.float64))
 

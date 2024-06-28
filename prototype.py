@@ -93,8 +93,12 @@ while True:
     aruco_empty_q = [ar_dict != {} for ar_dict in aruco_poses]
 
     if not all(aruco_empty_q):
-        print("continueing")
+        print("Aruco not detected in all cameras. Skipping this frame.", end='\r')
+        aruco_detected = False  # Update the flag to indicate markers are not detected
         continue
+    else:
+        print(" " * 55, end='\r')  # Clear the message
+        aruco_detected = True  # Update the flag to indicate markers are detected
 
     poses_0 = convert_Aruco2CorrespondingPointsList([ar_dict[0] for ar_dict in aruco_poses])
     poses_0 = np.array(poses_0)
