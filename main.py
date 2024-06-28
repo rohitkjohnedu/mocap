@@ -4,6 +4,8 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import cProfile
+import pstats
 
 ROWS = 5
 COLUMNS = 8
@@ -65,6 +67,8 @@ def calibrate_camera(images_folder, rows, columns, world_scaling ,show_image=Fal
             imgpoints.append(corners)
 
     # calibrate the camera
+    print("len objpoints", len(objpoints))
+    print("len imgpoints", len(imgpoints))
     ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(
                                         objpoints,
                                         imgpoints,
@@ -201,6 +205,7 @@ def get_arucoPosition(
 #                                                                                TRIANGULATE_ARUCO #
 # ------------------------------------------------------------------------------------------------ #
 def triangulate_aruco(camera_matrix_list, Rs, Ts, image_points_list):
+    
     image_points_list = [np.array(pts) for pts in image_points_list]
     no_points         = len(image_points_list[0]) 
 
@@ -238,89 +243,96 @@ def triangulate_aruco(camera_matrix_list, Rs, Ts, image_points_list):
 
 
 if __name__ == "__main__":
-    camera_indeces      = [0,1,3,4,5]
-    camera_matrix_list  = []
-    camera_distor_list  = []
-
-    for i in camera_indeces:
-        mtx, dist = calibrate_camera(f'images/*{i}.png', ROWS, COLUMNS, WORLD_SCALING)
-        camera_matrix_list.append(mtx)
-        camera_distor_list.append(dist)
-
-
-    print("single camera calibrated")
-
-    Rs = [np.eye(3)]
-    Ts = [np.zeros((3, 1))]
-
-    prime_camera_matrix = camera_matrix_list[0]
-    prime_camera_distor = camera_distor_list[0]
-    p_i = camera_indeces[0]
-
-    for i, camera_matrix, camera_distor in zip(camera_indeces[1:], camera_matrix_list[1:], camera_distor_list[1:]):
-        R, T = stereo_calibrate(
-                            prime_camera_matrix, prime_camera_distor,
-                            camera_matrix, camera_distor,
-                            f'images/*{p_i}.png', f'images/*{i}.png',
-                            ROWS, COLUMNS, WORLD_SCALING
-                            )
-        Rs.append(R)
-        Ts.append(T)
- 
-    # Get Aruco
-    aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_6X6_250)
-    parameters = cv.aruco.DetectorParameters()
-
-    images = []
-
-    for i in camera_indeces:
-        _im = cv.imread(f'aruco/ar_{i}.png', 1)
-        images.append(_im)
-
-    corners_list_dict = get_arucoPosition(
-        images,
-        camera_matrix_list,
-        camera_distor_list,
-        aruco_dict, parameters,
-        camera_indeces
-    )
-
-
-    # Triangulate
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.set_xlim3d(-15, 5)
-    ax.set_ylim3d(-10, 10)
-    ax.set_zlim3d(10, 30)
-
-    def plot_aruco(ax, p3ds, connections):
-        for _c in connections:
-            ax.plot(
-                xs = [p3ds[_c[0], 0], p3ds[_c[1], 0]],
-                ys = [p3ds[_c[0], 1], p3ds[_c[1], 1]],
-                zs = [p3ds[_c[0], 2], p3ds[_c[1], 2]],
-                c  = 'red')
-            
+    with cProfile.Profile() as pr:
 
     
-    p1, con1 = triangulate_aruco(camera_matrix_list, Rs, Ts, [i[0][0] for i in corners_list_dict])
-    plot_aruco(ax, p1, con1)
+        camera_indeces      = [0,1,3,4,5]
+        camera_matrix_list  = []
+        camera_distor_list  = []
 
-    p2, con2 = triangulate_aruco(camera_matrix_list, Rs, Ts, [i[2][0] for i in corners_list_dict])
-    plot_aruco(ax, p2, con2)
+        for i in camera_indeces:
+            mtx, dist = calibrate_camera(f'images/*{i}.png', ROWS, COLUMNS, WORLD_SCALING)
+            camera_matrix_list.append(mtx)
+            camera_distor_list.append(dist)
 
-    p3, con3 = triangulate_aruco(camera_matrix_list, Rs, Ts, [i[3][0] for i in corners_list_dict])
-    plot_aruco(ax, p3, con3)
+
+        print("single camera calibrated")
+
+        Rs = [np.eye(3)]
+        Ts = [np.zeros((3, 1))]
+
+        prime_camera_matrix = camera_matrix_list[0]
+        prime_camera_distor = camera_distor_list[0]
+        p_i = camera_indeces[0]
+
+        for i, camera_matrix, camera_distor in zip(camera_indeces[1:], camera_matrix_list[1:], camera_distor_list[1:]):
+            R, T = stereo_calibrate(
+                                prime_camera_matrix, prime_camera_distor,
+                                camera_matrix, camera_distor,
+                                f'images/*{p_i}.png', f'images/*{i}.png',
+                                ROWS, COLUMNS, WORLD_SCALING
+                                )
+            Rs.append(R)
+            Ts.append(T)
+    
+        # Get Aruco
+        aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_6X6_250)
+        parameters = cv.aruco.DetectorParameters()
+
+        images = []
+
+        for i in camera_indeces:
+            _im = cv.imread(f'aruco/ar_{i}.png', 1)
+            images.append(_im)
+
+        corners_list_dict = get_arucoPosition(
+            images,
+            camera_matrix_list,
+            camera_distor_list,
+            aruco_dict, parameters,
+            camera_indeces
+        )
 
 
-    # Adjust the 3D plot to approximate orthographic projection
+        # Triangulate
 
-    # Make matplotlib orthographic
-    ax.view_init(elev=90, azim=90)
-    ax.get_proj = lambda: np.dot(Axes3D.get_proj(ax), np.diag([1, 1, 0.1, 1]))
-    plt.show()
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_xlim3d(-15, 5)
+        ax.set_ylim3d(-10, 10)
+        ax.set_zlim3d(10, 30)
 
-    print("p1: ", p1)
-    print("p2: ", p2)
-    print("p3: ", p3)
+        def plot_aruco(ax, p3ds, connections):
+            for _c in connections:
+                ax.plot(
+                    xs = [p3ds[_c[0], 0], p3ds[_c[1], 0]],
+                    ys = [p3ds[_c[0], 1], p3ds[_c[1], 1]],
+                    zs = [p3ds[_c[0], 2], p3ds[_c[1], 2]],
+                    c  = 'red')
+                
+
+        
+        p1, con1 = triangulate_aruco(camera_matrix_list, Rs, Ts, [i[0][0] for i in corners_list_dict])
+        plot_aruco(ax, p1, con1)
+
+        p2, con2 = triangulate_aruco(camera_matrix_list, Rs, Ts, [i[2][0] for i in corners_list_dict])
+        plot_aruco(ax, p2, con2)
+
+        p3, con3 = triangulate_aruco(camera_matrix_list, Rs, Ts, [i[3][0] for i in corners_list_dict])
+        plot_aruco(ax, p3, con3)
+
+
+        # Adjust the 3D plot to approximate orthographic projection
+
+        # Make matplotlib orthographic
+        ax.view_init(elev=90, azim=90)
+        ax.get_proj = lambda: np.dot(Axes3D.get_proj(ax), np.diag([1, 1, 0.1, 1]))
+        plt.show()
+
+        print("p1: ", p1)
+        print("p2: ", p2)
+        print("p3: ", p3)
+
+    results = pstats.Stats(pr)
+    results.sort_stats(pstats.SortKey.TIME)
+    results.dump_stats("resultsMain.prof")

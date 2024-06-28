@@ -1,27 +1,27 @@
 import numpy as np
 import numpy.typing as npt
 import cv2 as cv
-import glob
 
 from cv2 import aruco
 from attrs import define, field
 from numpy.typing import NDArray
 from CameraPPTTypes import NP_Vector_3D, NP_Matrix_3D, F64, F32, CV_Image, CV_Matrix, NP_Matrix_NxM, CV_Vector_3D 
 from abc import ABC, abstractmethod
+from multiprocessing import Queue
 
 
 def DLT(Ps: list[NP_Matrix_NxM], image_points: NP_Matrix_NxM) -> NP_Matrix_NxM:
     A = []
     for P, image_point in zip(Ps, image_points):
-        A.append(image_point[1]*P[2, :] - P[1, :])
-        A.append(P[0, :] - image_point[0]*P[2, :])
+        A.append(image_point[1] * P[2, :] - P[1, :])
+        A.append(P[0, :] - image_point[0] * P[2, :])
 
-    A = np.array(A).reshape((len(Ps)*2, 4))
+    A = np.array(A).reshape((len(Ps) * 2, 4))
     B = A.transpose() @ A
     from scipy import linalg
     U, s, Vh = linalg.svd(B, full_matrices=False)
 
-    return Vh[3, 0:3]/Vh[3, 3]
+    return Vh[3, 0:3] / Vh[3, 3]
 
 
 @define(slots=True)
@@ -32,15 +32,15 @@ class Aruco:
     tvecs: NDArray[F32]
 
 
-def convert_Aruco2CorrespondingPointsList(aruco_list: list[Aruco]) -> list[CV_Matrix]:
+def convert_Aruco2CorrespondingPointsList(aruco_list: list[Aruco]) -> list[list[CV_Matrix]]:
     NO_ARUCO_CORNERS = 4
-    out = []
+    corner_point_list: list[list[CV_Matrix]] = []
 
     for i in range(NO_ARUCO_CORNERS):
-        corner_point = [aruco_list.corners_image_position[i] for aruco_list in aruco_list]
-        out.append(corner_point)
+        corner_point: list[CV_Matrix] = [aruco_list.corners_image_position[i] for aruco_list in aruco_list]
+        corner_point_list.append(corner_point)
 
-    return out
+    return corner_point_list
 
 
 
@@ -110,16 +110,19 @@ class Camera(ABC):
                     criteria)
 
                 if show_image:
+                    frame_copy: CV_Image = frame.copy()
                     cv.drawChessboardCorners(
-                        frame,
+                        frame_copy,
                         (rows, columns),
                         corners,
                         ret)
-                    cv.imshow('img', frame)
+                    cv.imshow('img', frame_copy)
                     cv.waitKey(500)
 
                 objpoints.append(objp)
                 imgpoints.append(corners)
+            else:
+                print("Checkerboard not found in image")
 
         # calibrate the camera
         # print("len objpoints", len(objpoints))
@@ -164,7 +167,7 @@ class Camera(ABC):
         return tag_list
 
     @abstractmethod
-    def capture_frame(self, image_loc):
+    def capture_frame(self, image_loc: str):
         pass
 
     @abstractmethod
@@ -174,15 +177,70 @@ class Camera(ABC):
 
 @define(slots=True)
 class ImageReader(Camera):
-    def capture_frame(self, image_loc):
+    def capture_frame(self, image_loc: str):
         self.current_frame = cv.imread(image_loc)
 
     def capture_calibrationImages(self, image_loc_list):
         for im_loc in image_loc_list:
             _im = cv.imread(im_loc)
             self.calibration_images.append(_im)
-            # print(f"Image {im_loc} captured")
-        
+
+
+@define(slots=True)
+class WebCam(Camera):
+    command_queue: Queue = field(factory=lambda: None)
+    cap: cv.VideoCapture = field(factory=lambda: None)
+
+    def __init__(self, id, world_scaling, rows, columns, command_queue, **kwargs):
+        super().__init__(id, world_scaling, rows, columns, **kwargs)
+        self.command_queue = command_queue
+
+    def initialize_camera(self):
+        self.cap = cv.VideoCapture(self.id)
+        if not self.cap.isOpened():
+            print(f"Camera {self.id}: Failed to open.")
+            return False
+        return True
+
+    def capture_frame(self, image_loc: str = "") -> bool:
+        ret, frame         = self.cap.read()
+        if not ret:
+            raise ValueError(f"Camera ID {self.id}: Frame cannot captured")
+        self.current_frame = frame
+        return ret
+
+    def show_frame(self):
+        cv.imshow(f"Camera {self.id}", self.current_frame)
+        cv.waitKey(1)
+
+    def capture_calibrationImages(self):
+        if not self.initialize_camera():
+            return
+        print(f"""\nCamera {self.id} is ready to capture.""")
+
+        while True:
+            if not self.capture_frame():
+                break
+
+            # Show the current frame
+            cv.imshow(f'Camera Feed {self.id}', self.current_frame)
+            cv.waitKey(1)
+
+            if not self.command_queue.empty():
+                command = self.command_queue.get()
+                if command == 'capture':
+                    self.calibration_images.append(self.current_frame.copy())
+                    print(f"Camera {self.id}: Image captured.")
+                elif command == 'quit':
+                    break
+
+        # Release the camera and close the window
+        self.cap.release()
+        cv.destroyAllWindows()
+
+    def release_camera(self):
+        self.cap.release()
+
 
 @define(slots=True)
 class StereoCamera:
@@ -207,7 +265,7 @@ class StereoCamera:
     def __attrs_post_init__(self) -> None:
         self.prime_camera = self.camera_list[0]
 
-    def calibrate_stereo(self):
+    def calibrate_stereo(self, show_image=False):
         prime_cam  = self.prime_camera
         other_cams = [cam for cam in self.camera_list if cam != prime_cam]
 
@@ -222,7 +280,7 @@ class StereoCamera:
         self.camera_oris.append(prime_ori)
 
         for cam in other_cams:
-            R, T = self.calibrate_pairStereo(prime_cam, cam)
+            R, T = self.calibrate_pairStereo(prime_cam, cam, show_image)
             cam.position    = T
             cam.orientation = R
 
@@ -282,16 +340,20 @@ class StereoCamera:
                 corners2: CV_Matrix = cv.cornerSubPix(gray2, corners2, (11, 11), (-1, -1), criteria)
 
                 if show_image:
-                    cv.drawChessboardCorners(frame1, (rows, columns), corners1, c_ret1)
-                    cv.imshow('img', frame1)
+                    frame1_copy: CV_Image = frame1.copy()
+                    cv.drawChessboardCorners(frame1_copy, (rows, columns), corners1, c_ret1)
+                    cv.imshow('img', frame1_copy)
 
-                    cv.drawChessboardCorners(frame2, (rows, columns), corners2, c_ret2)
-                    cv.imshow('img2', frame2)
+                    frame2_copy: CV_Image = frame2.copy()
+                    cv.drawChessboardCorners(frame2_copy, (rows, columns), corners2, c_ret2)
+                    cv.imshow('img2', frame2_copy)
                     cv.waitKey(500)
 
                 objpoints.append(objp)
                 imgpoints_left.append(corners1)
                 imgpoints_right.append(corners2)
+            else:
+                print(f"checkerboard not found in image, {c_ret1}, {c_ret2}")
 
         mtx1: CV_Matrix  = prime_cam.camera_matrix
         dist1: CV_Matrix = prime_cam.dist_coeffs
