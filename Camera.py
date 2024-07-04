@@ -10,6 +10,39 @@ from abc import ABC, abstractmethod
 from typing import Sequence
 
 
+def my_estimatePoseSingleMarkers(
+        corners: Sequence[CV_Matrix],
+        marker_size: F64,
+        mtx: NP_Matrix_3D,
+        distortion: NDArray[F64]
+    ):
+
+    '''
+    This will estimate the rvec and tvec for each of the marker corners detected by:
+       corners, ids, rejectedImgPoints = detector.detectMarkers(image)
+    corners - is an array of detected corners for each detected marker in the image
+    marker_size - is the size of the detected markers
+    mtx - is the camera matrix
+    distortion - is the camera distortion matrix
+    RETURN list of rvecs, tvecs, and trash (so that it corresponds to the old estimatePoseSingleMarkers())
+    https://stackoverflow.com/questions/75750177/solve-pnp-or-estimate-pose-single-markers-which-is-better
+    '''
+    marker_points = np.array([[-marker_size / 2, marker_size / 2, 0],
+                              [marker_size / 2, marker_size / 2, 0],
+                              [marker_size / 2, -marker_size / 2, 0],
+                              [-marker_size / 2, -marker_size / 2, 0]], dtype=np.float32)
+    trash = []
+    rvecs: list[F32] = []
+    tvecs: list[F32] = []
+    
+    for c in corners:
+        nada, R, t = cv.solvePnP(marker_points, c, mtx, distortion, False, cv.SOLVEPNP_IPPE_SQUARE)
+        rvecs.append(R)
+        tvecs.append(t)
+        trash.append(nada)
+    return np.array(rvecs), np.array(tvecs), trash
+
+
 def DLT(Ps: list[NP_Matrix_NxM], image_points: NP_Matrix_NxM) -> NP_Matrix_NxM:
     A = []
     for P, image_point in zip(Ps, image_points):
@@ -50,6 +83,8 @@ class Camera(ABC):
     world_scaling: F32
     chess_rows_number: int
     chess_columns_number: int
+
+    camera_resolution: tuple[int, int] = field(default=(640, 480))
 
     camera_matrix: NP_Matrix_3D   = field(factory=lambda: np.eye(3, dtype=np.float64))
     dist_coeffs: NDArray[F64]     = field(factory=lambda: np.zeros(5, dtype=np.float64))
@@ -141,19 +176,17 @@ class Camera(ABC):
 
     def get_arucoImagePose(self,
                            aruco_dict: cv.aruco.Dictionary,
-                           aruco_params: cv.aruco.DetectorParameters
+                           aruco_params: cv.aruco.DetectorParameters,
+                           detector: cv.aruco.ArucoDetector
                            ) -> dict[int, Aruco]:
         image: CV_Image = self.current_frame
         gray: CV_Image  = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
 
-        corners, ids, rejectedImgPoints_1 = aruco.detectMarkers(
-            gray,
-            aruco_dict,
-            parameters=aruco_params)
+        corners, ids, rejectedImgPoints_1 = detector.detectMarkers(gray)
 
-        rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
+        rvecs, tvecs, _ = my_estimatePoseSingleMarkers(
             corners,
-            0.05,
+            F64(0.05),
             self.camera_matrix,
             self.dist_coeffs)
 
@@ -197,6 +230,14 @@ class WebCam(Camera):
     cap: cv.VideoCapture = field(factory=lambda: None)
 
     def initialize_camera(self):
+        self.cap = cv.VideoCapture(self.id, cv.CAP_DSHOW)
+        if not self.cap.isOpened():
+            print(f"Camera {self.id}: Failed to open.")
+            return False
+
+        self.cap.set(cv.CAP_PROP_FRAME_WIDTH, self.camera_resolution[0])
+        self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, self.camera_resolution[1])
+        return True
         self.cap = cv.VideoCapture(self.id)
         if not self.cap.isOpened():
             print(f"Camera {self.id}: Failed to open.")
@@ -210,8 +251,11 @@ class WebCam(Camera):
         self.current_frame = frame
         return ret
 
-    def show_frame(self):
-        cv.imshow(f"Camera {self.id}", self.current_frame)
+    def show_frame(self, frame=None):
+        if frame is not None:
+            cv.imshow(f"Camera {self.id}", frame)
+        else:
+            cv.imshow(f"Camera {self.id}", self.current_frame)
 
     def capture_calibrationImages(self):
         if not self.initialize_camera():
@@ -334,7 +378,9 @@ class StereoCamera:
                 imgpoints_left.append(corners1)
                 imgpoints_right.append(corners2)
             else:
-                print(f"checkerboard not found in camera, {c_ret1}, {c_ret2}")
+                print(f"""checkerboard not found in camera, 
+                      "id: "{prime_cam.id} {c_ret1}, 
+                      "id: "{other_cam.id} {c_ret2}""")
 
         mtx1: CV_Matrix  = prime_cam.camera_matrix
         dist1: CV_Matrix = prime_cam.dist_coeffs
