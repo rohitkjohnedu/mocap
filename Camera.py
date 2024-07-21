@@ -97,6 +97,8 @@ class Camera(ABC):
     calibration_error: float            = field(default=0.0)
 
     current_frame: CV_Image    = field(default=None)
+    rvecs: Sequence[CV_Matrix]        = field(factory=lambda: np.zeros(3, dtype=np.float32))
+    tvecs: Sequence[CV_Matrix]        = field(factory=lambda: np.zeros(3, dtype=np.float32))
 
 
     def calibrate(self, show_image: bool = False) -> None:
@@ -170,6 +172,9 @@ class Camera(ABC):
             None
         )
 
+        self.rvecs = rvecs
+        self.tvecs = tvecs
+
         self.camera_matrix = mtx
         self.dist_coeffs   = dist
         self.calibratedQ   = True
@@ -204,6 +209,18 @@ class Camera(ABC):
         
         except TypeError as _:
             return {}
+        
+    def export_calibrationDataJSON(self, json_loc: str):
+        import json
+        data = {
+            "camera_matrix": self.camera_matrix.tolist(),
+            "dist_coeffs": self.dist_coeffs.tolist()
+        }
+
+        # add indentation to make it more readable
+        with open(json_loc, 'w') as f:
+            json.dump(data, f, indent=4)
+            
 
     @abstractmethod
     def capture_frame(self, image_loc: str):
