@@ -10,7 +10,7 @@ ROWS:    int = 5
 COLUMNS: int = 7
 WORLD_SCALING: F32  = F32(0.04)
 
-image_location: str = "./lenovo_checker_calibration/*.jpg"
+image_location: str = "./blender_camera_calibration/*.png"
 images: list[str]   = glob.glob(image_location)
 
 cam: Camera.ImageReader = Camera.ImageReader(0, WORLD_SCALING, ROWS,
@@ -22,7 +22,7 @@ if len(images) == 0:
     exit()
 
 cam.capture_calibrationImages(images)
-cam.calibrate()
+cam.calibrate(True)
 cam.export_calibrationDataJSON("./lenovo_checker_calibration/calibration_data.json")
 
 rvecs: Sequence[CV_Matrix] = cam.rvecs
@@ -40,15 +40,22 @@ def get_camera_positions(rvecs: Sequence[CV_Matrix], tvecs: Sequence[CV_Matrix])
 
 camera_positions: np.ndarray = get_camera_positions(rvecs, tvecs)
 
+print("Number of camera positions: ", len(camera_positions))
+print("Camera positions: \n", camera_positions)
 
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
+
 
 # Plot the checkerboard at the origin
 ax.scatter(0, 0, 0, c='r', marker='o', label='Checkerboard')
 
 # Plot the camera positions
-ax.scatter(camera_positions[:, 0], camera_positions[:, 1], camera_positions[:, 2], c='b', marker='^', label='Camera Positions')
+ax.scatter(
+    camera_positions[:, 0], 
+    camera_positions[:, 1], 
+    camera_positions[:, 2], 
+    c='b', marker='^', label='Camera Positions')
 
 ax.set_xlabel('X')
 ax.set_ylabel('Y')
